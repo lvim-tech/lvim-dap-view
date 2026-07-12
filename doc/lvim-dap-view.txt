@@ -1,0 +1,109 @@
+*lvim-dap-view.txt*                        The debugger UI for the lvim-dap engine
+
+==============================================================================
+CONTENTS                                                  *lvim-dap-view-contents*
+
+    1. Introduction ........................ |lvim-dap-view-introduction|
+    2. Requirements ........................ |lvim-dap-view-requirements|
+    3. Setup ............................... |lvim-dap-view-setup|
+    4. Sections ............................ |lvim-dap-view-sections|
+    5. Controls & keys ..................... |lvim-dap-view-keys|
+    6. Commands ............................ |lvim-dap-view-commands|
+    7. Health .............................. |lvim-dap-view-health|
+
+==============================================================================
+1. INTRODUCTION                                       *lvim-dap-view-introduction*
+
+lvim-dap-view is the debugger UI for the lvim-dap engine (|lvim-dap|). It is a
+dock of tabbed panels — Watches, Scopes, Stack, Breakpoints, Exceptions, REPL,
+Console, Sessions — rendered through the shared lvim-ui primitives; the tree
+panels are built on the lvim-ui tree primitive. It subscribes to the engine's
+listener bus, so a stop, a step, output, or a session change repaints the
+active panel live, and it drives run control through the engine's public API.
+
+==============================================================================
+2. REQUIREMENTS                                       *lvim-dap-view-requirements*
+
+- Neovim >= 0.10
+- lvim-dap (the engine)
+- lvim-ui (tabs + tree primitives)
+- lvim-utils
+
+==============================================================================
+3. SETUP                                                     *lvim-dap-view-setup*
+
+>lua
+    require("lvim-dap-view").setup({
+        sections = { "watches", "scopes", "stack", "breakpoints",
+                     "exceptions", "repl", "console", "sessions" },
+        default_section = "scopes",
+        layout = "bottom",      -- bottom | area | float
+        height = 14,
+        auto_open = true,
+        auto_close = true,
+        icons = { … },          -- per-section glyphs (see the README)
+        keys = { … },           -- panel-local action keys (see the README)
+    })
+<
+`sections`         which tabs to show, left→right
+`default_section`  the tab focused on open
+`layout`           dock layout: "bottom" | "area" | "float"
+`height`           docked content row budget
+`auto_open`        open the dock when a session starts
+`auto_close`       close the dock when the last session ends
+
+==============================================================================
+4. SECTIONS                                               *lvim-dap-view-sections*
+
+Watches ~
+    User watch expressions → evaluated value trees. `a` add, `e` edit,
+    `d` delete, <CR> expand.
+
+Scopes ~
+    The current frame's scopes → variables (children fetched lazily on
+    expand). <CR> expand, `s` set value, `y` copy.
+
+Stack ~
+    Threads → frames; the current frame is marked with ➤. <CR> focuses the
+    frame and jumps the editor to it.
+
+Breakpoints ~
+    Grouped by file → line entries with a kind icon. <CR> jumps, `d` deletes.
+
+Exceptions ~
+    The adapter's exception filters as toggle rows. <CR> toggles a filter.
+
+REPL ~
+    Evaluate scrollback. `i` opens a prompt; results append below.
+
+Console ~
+    Debuggee output (DAP output events).
+
+Sessions ~
+    The session tree (parents/children). <CR> focuses a session.
+
+==============================================================================
+5. CONTROLS & KEYS                                            *lvim-dap-view-keys*
+
+The controls band (clickable + hotkeys):
+    c  continue     o  step over    i  step in
+    O  step out     x  terminate
+
+    ]v / [v   next / previous section tab
+    g?        help window
+
+==============================================================================
+6. COMMANDS                                               *lvim-dap-view-commands*
+
+                                                                   *:LvimDapView*
+:LvimDapView {sub}  One of: `toggle` (default), `open`, `close`, or a section
+    name (`watches` `scopes` `stack` `breakpoints` `exceptions` `repl`
+    `console` `sessions`) to open the dock focused on that tab.
+
+==============================================================================
+7. HEALTH                                                   *lvim-dap-view-health*
+
+`:checkhealth lvim-dap-view` verifies lvim-dap and lvim-ui (tabs + tree) are
+present and checks the configured section list.
+
+vim:tw=78:ts=8:ft=help:norl:
