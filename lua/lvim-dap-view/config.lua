@@ -54,8 +54,8 @@ return {
         thread = "",
         frame = "",
         frame_focused = "➤",
-        breakpoint = "",
-        breakpoint_condition = "",
+        breakpoint = "\u{f111}", -- kept in step with lvim-dap's gutter signs (they were EMPTY)
+        breakpoint_condition = "\u{f192}",
         logpoint = "",
         watch = "",
         session = "",

@@ -283,7 +283,9 @@ local function build_tree(name, sec)
     return t
 end
 
---- The provider for a text section (records active section on update too).
+--- The provider for a text section (records active section on render, and captures its panel so the
+--- section can be REPAINTED in place while it is visible — REPL output and debuggee console lines arrive
+--- continuously, and without `pan.refresh()` they only appeared on the next tab switch).
 ---@param name string
 ---@param sec table
 ---@return table
@@ -293,6 +295,9 @@ local function text_provider(name, sec)
     p.render = function(...)
         state.current = name
         return orig(...)
+    end
+    p.keys = function(_, pan)
+        state.pans[name] = pan
     end
     return p
 end
@@ -351,6 +356,7 @@ function M.open(section)
         return
     end
     state.trees = {}
+    state.pans = {}
     local tabs = {}
     for _, name in ipairs(config.sections) do
         local sec = SECTIONS[name]
@@ -380,6 +386,7 @@ function M.open(section)
         on_close = function()
             state.open = false
             state.handle = nil
+            state.pans = {}
         end,
     })
     state.open = state.handle ~= nil
@@ -415,20 +422,34 @@ function M.focus(name)
     end
 end
 
---- Repaint one section's tree (no-op if that tree isn't the visible one).
+--- Repaint section `name` — but ONLY when it is the VISIBLE one.
+---
+--- The tabs dock is in provider mode: every section shares ONE content panel (and its buffer). A tree
+--- renders into the panel it last saw, so repainting a HIDDEN section writes its lines over whatever tab
+--- the user is actually looking at — which is exactly how every tab came to show the same content (a
+--- `scopes` refresh landing on the Stack tab). A hidden section needs no repaint at all: switching to it
+--- re-fires its provider's update, which renders it fresh from the live state.
 ---@param name string
 function M.refresh(name)
+    if not state.open or name ~= state.current then
+        return
+    end
     local t = state.trees[name]
     if t and t.valid and t.valid() then
         t.refresh()
+        return
+    end
+    -- A TEXT section (REPL / Console): re-render its panel in place, so streaming output appears live.
+    local pan = state.pans[name]
+    if pan and pan.refresh then
+        pcall(pan.refresh)
     end
 end
 
 --- Repaint whatever section is currently visible.
 function M.refresh_all()
-    local t = state.current and state.trees[state.current]
-    if t and t.valid and t.valid() then
-        t.refresh()
+    if state.current then
+        M.refresh(state.current)
     end
 end
 

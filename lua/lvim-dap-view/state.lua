@@ -8,6 +8,7 @@
 ---@class LvimDapViewState
 ---@field handle? table                      the lvim-ui.tabs handle for the open dock
 ---@field trees table<string, table>         section name → lvim-ui.tree handle
+---@field pans table<string, table>          section name → its surface panel (text sections; for pan.refresh)
 ---@field open boolean                       whether the dock is open
 ---@field current string?                    the active section
 ---@field var_cache table<integer, table[]>  variablesReference → fetched variables (per-stop)
@@ -19,6 +20,7 @@
 local M = {
     handle = nil,
     trees = {},
+    pans = {},
     open = false,
     current = nil,
     var_cache = {},
