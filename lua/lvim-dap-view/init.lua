@@ -304,6 +304,8 @@ end
 
 --- The controls footer: run-control buttons wired to the engine (clickable + hotkeys).
 ---@return table[]
+local show_help -- forward decl (the footer chip is built before the window it opens)
+
 local function controls()
     local d = dap()
     return {
@@ -343,7 +345,40 @@ local function controls()
                 d.terminate()
             end,
         },
+        { type = "separator" },
+        -- The cheatsheet's key: the panel's keys are not discoverable from the tree, so the bar must show it.
+        { key = config.keys.help, name = "help", no_hotkey = true, run = show_help },
     }
+end
+
+--- The cheatsheet rows: `{ key, what it does }`, from the LIVE key config (an unmapped key is skipped).
+local HELP = {
+    { "expand", "expand / collapse the node" },
+    { "jump", "jump to the frame / breakpoint" },
+    { "set_value", "set the variable's value" },
+    { "copy_value", "yank the value" },
+    { "add_watch", "add a watch expression" },
+    { "edit", "edit the watch expression" },
+    { "delete", "delete the watch / breakpoint" },
+    { "eval", "evaluate an expression" },
+    { "toggle_exception", "toggle the exception filter" },
+    { "next_section", "next tab" },
+    { "prev_section", "previous tab" },
+    { "help", "this cheatsheet" },
+}
+
+--- Open the keymap cheatsheet — the shared `lvim-ui.help` component (rows / striping / colours / window).
+function show_help()
+    local items = {}
+    local seen = {}
+    for _, e in ipairs(HELP) do
+        local lhs = config.keys[e[1]]
+        if lhs and lhs ~= "" and not seen[lhs .. e[2]] then
+            seen[lhs .. e[2]] = true
+            items[#items + 1] = { lhs, e[2] }
+        end
+    end
+    ui().help({ title = "DAP keymaps", items = items, close_keys = { "q", "<Esc>", config.keys.help } })
 end
 
 --- Open the dock. Idempotent — focuses the existing dock if already open.
@@ -383,6 +418,8 @@ function M.open(section)
         tab_bar = true,
         tab_selector = section or config.default_section,
         footer_hints = controls(),
+        -- The cheatsheet's key, frame-wide (every tab): the panel is modal, its keys are its own.
+        keymaps = { { key = config.keys.help, run = show_help } },
         on_close = function()
             state.open = false
             state.handle = nil
