@@ -592,20 +592,34 @@ local COMMANDS = {
 
 local function setup_command()
     vim.api.nvim_create_user_command("LvimDapView", function(cmd)
-        local sub = cmd.fargs[1] or "toggle"
+        -- A layout token (area|float|bottom) ANYWHERE overrides `config.layout` for this open — sticky for the
+        -- session (the git/forge convention; config.lua is the live authority a command may override). The
+        -- remaining word is the subcommand (default `toggle`). So `:LvimDapView float`, `:LvimDapView open
+        -- float`, `:LvimDapView watches area` all work.
+        local LAYOUTS = { area = true, float = true, bottom = true }
+        local rest = {}
+        for _, w in ipairs(cmd.fargs) do
+            if LAYOUTS[w] then
+                config.layout = w
+            else
+                rest[#rest + 1] = w
+            end
+        end
+        local sub = rest[1] or "toggle"
         local fn = COMMANDS[sub]
         if fn then
-            fn(cmd.fargs[2])
+            fn(rest[2])
         else
             vim.notify("lvim-dap-view: unknown subcommand " .. sub, vim.log.levels.WARN)
         end
     end, {
         nargs = "*",
-        desc = "lvim-dap-view",
+        desc = "lvim-dap-view (:LvimDapView [<section>] [area|float|bottom])",
         complete = function(arg)
+            local pool = vim.list_extend(vim.tbl_keys(COMMANDS), { "area", "float", "bottom" })
             return vim.tbl_filter(function(s)
                 return s:find(arg, 1, true) == 1
-            end, vim.tbl_keys(COMMANDS))
+            end, pool)
         end,
     })
 end
