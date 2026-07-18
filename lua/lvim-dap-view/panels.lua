@@ -24,8 +24,10 @@ end
 ---@param vars table[]
 ---@param path string  a stable id prefix
 ---@param parent_ref integer  the variablesReference these variables were fetched from (for setVariable)
+---@param owner string  the section that owns this subtree ("scopes"|"watches") — threaded so a lazy fetch
+---  refreshes the RIGHT tab (both Scopes and Watches expand variables through this same code)
 ---@return LvimUiTreeNode[]
-local function variable_nodes(vars, path, parent_ref)
+local function variable_nodes(vars, path, parent_ref, owner)
     local nodes = {}
     for i, v in ipairs(vars) do
         local id = path .. "/" .. (v.name or tostring(i))
@@ -44,7 +46,7 @@ local function variable_nodes(vars, path, parent_ref)
         }
         if ref > 0 then
             node.children = function()
-                return M.child_nodes(ref, id)
+                return M.child_nodes(ref, id, owner)
             end
         end
         nodes[#nodes + 1] = node
@@ -52,14 +54,17 @@ local function variable_nodes(vars, path, parent_ref)
     return nodes
 end
 
---- Lazy children for a variablesReference: cached, else kick off a fetch + refresh.
+--- Lazy children for a variablesReference: cached, else kick off a fetch + refresh of the OWNING section.
+--- The completion routes through the dock's guarded `refresh(owner)` (a no-op for a hidden tab, correct
+--- tree otherwise) — hard-coding `state.trees.scopes` here painted a Watches expansion onto the Scopes tab.
 ---@param ref integer
 ---@param path string
+---@param owner string  the owning section ("scopes"|"watches")
 ---@return LvimUiTreeNode[]
-function M.child_nodes(ref, path)
+function M.child_nodes(ref, path, owner)
     local cached = state.var_cache[ref]
     if cached then
-        return variable_nodes(cached, path, ref)
+        return variable_nodes(cached, path, ref, owner)
     end
     local s = dap().session()
     if not s then
@@ -69,10 +74,7 @@ function M.child_nodes(ref, path)
     require("lvim-dap.async").run(function()
         local vars = s:fetch_variables(ref) or {}
         state.var_cache[ref] = vars
-        local tree = state.trees.scopes
-        if tree and tree.valid and tree.valid() then
-            tree.refresh()
-        end
+        require("lvim-dap-view").refresh(owner)
     end)
     return { { id = path .. "/__loading", label = "loading…", icon = "", label_hl = "Comment" } }
 end
@@ -97,7 +99,7 @@ function M.scopes_root()
             expandable = ref > 0,
             kind = "scope",
             children = ref > 0 and function()
-                return M.child_nodes(ref, "scope/" .. sc.name)
+                return M.child_nodes(ref, "scope/" .. sc.name, "scopes")
             end or nil,
         }
     end
@@ -213,7 +215,7 @@ function M.watches_root()
             kind = "watch",
             data = { expr = expr },
             children = ref > 0 and function()
-                return M.child_nodes(ref, "watch/" .. expr)
+                return M.child_nodes(ref, "watch/" .. expr, "watches")
             end or nil,
         }
     end

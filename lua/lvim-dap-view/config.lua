@@ -36,6 +36,7 @@
 ---@field height    number        docked content row budget (absolute rows) for bottom/area
 ---@field auto_open boolean       open the dock automatically when a session starts
 ---@field auto_close boolean      close the dock automatically when the last session ends
+---@field scrollback integer      max REPL / Console rows kept (0 = unlimited); older rows are dropped
 ---@field icons     LvimDapViewIcons
 ---@field keys      table<string, string>  panel-local action keys
 
@@ -47,6 +48,7 @@ return {
     height = 14,
     auto_open = true,
     auto_close = true,
+    scrollback = 2000,
     icons = {
         scope = "",
         variable = "",

@@ -55,12 +55,15 @@ The dock opens automatically on a session (`auto_open`) and closes when the last
 | Sessions    | session tree (parents/children) | `<CR>` focus session |
 
 Controls band (clickable + hotkeys): continue `c`, step over `o`, step in `i`, step out `O`,
-terminate `x`. `g?` shows the help window.
+terminate `x`. `g?` shows the help window. (`i` opens the REPL eval prompt while the REPL tab is
+active, and steps in on every other tab.)
 
-**Tabs**: `L` / `H` in the panel body (upper-case), or the tab bar itself (`<C-k>` focuses it, `h`/`l`
-move, `<C-j>` returns). Lower-case `l`/`h` belong to the CONTENT: they expand / collapse the tree node
-under the cursor — a variable's children are fetched only when you open it (never eagerly: expanding
-everything recursively would walk the debuggee's whole object graph).
+**Tabs**: `]v` / `[v` cycle to the next / previous tab (wrapping), or `L` / `H` in the panel body
+(upper-case), or the tab bar itself (`<C-k>` focuses it, `h`/`l` move, `<C-j>` returns). Lower-case `l`/`h`
+belong to the CONTENT: they expand / collapse the tree node under the cursor — a variable's children are
+fetched only when you open it (never eagerly: expanding everything recursively would walk the debuggee's
+whole object graph). Panel keys are bound frame-wide and act on whichever tab is active, so every section's
+keys work regardless of the tab you opened on.
 
 ## Commands
 
@@ -80,6 +83,7 @@ require("lvim-dap-view").setup({
     height = 14, -- docked content row budget
     auto_open = true, -- open the dock when a session starts
     auto_close = true, -- close the dock when the last session ends
+    scrollback = 2000, -- max REPL / Console rows kept (0 = unlimited)
     icons = {
         scope = "",
         variable = "",

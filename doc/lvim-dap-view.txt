@@ -41,6 +41,7 @@ active panel live, and it drives run control through the engine's public API.
         height = 14,
         auto_open = true,
         auto_close = true,
+        scrollback = 2000,      -- max REPL / Console rows (0 = unlimited)
         icons = { … },          -- per-section glyphs (see the README)
         keys = { … },           -- panel-local action keys (see the README)
     })
@@ -51,6 +52,7 @@ active panel live, and it drives run control through the engine's public API.
 `height`           docked content row budget
 `auto_open`        open the dock when a session starts
 `auto_close`       close the dock when the last session ends
+`scrollback`       max REPL / Console rows kept (0 = unlimited)
 
 ==============================================================================
 4. SECTIONS                                               *lvim-dap-view-sections*
@@ -88,6 +90,8 @@ Sessions ~
 The controls band (clickable + hotkeys):
     c  continue     o  step over    i  step in
     O  step out     x  terminate
+
+`i` opens the REPL eval prompt while the REPL tab is active; on every other tab it steps in.
 
     ]v / [v   next / previous section tab
     g?        help window

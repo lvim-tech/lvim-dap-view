@@ -8,25 +8,25 @@
 ---@class LvimDapViewState
 ---@field handle? table                      the lvim-ui.tabs handle for the open dock
 ---@field trees table<string, table>         section name → lvim-ui.tree handle
----@field pans table<string, table>          section name → its surface panel (text sections; for pan.refresh)
 ---@field open boolean                       whether the dock is open
 ---@field current string?                    the active section
 ---@field var_cache table<integer, table[]>  variablesReference → fetched variables (per-stop)
 ---@field expanded_gen integer               bumped on each stop to reset lazy expansion caches
 ---@field repl_lines string[]                REPL scrollback
 ---@field console_lines string[]             debuggee output scrollback
+---@field console_partial string             trailing debuggee output not yet terminated by a newline
 ---@field watches string[]                   watch expressions (user-added)
 ---@field watch_results table<string, table> expression → last evaluate result/err
 local M = {
     handle = nil,
     trees = {},
-    pans = {},
     open = false,
     current = nil,
     var_cache = {},
     expanded_gen = 0,
     repl_lines = {},
     console_lines = {},
+    console_partial = "",
     watches = {},
     watch_results = {},
 }

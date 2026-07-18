@@ -52,11 +52,12 @@ function M.check()
     end
 
     health.info(
-        ("layout=%s  height=%d  auto_open=%s  auto_close=%s"):format(
+        ("layout=%s  height=%d  auto_open=%s  auto_close=%s  scrollback=%d"):format(
             config.layout,
             config.height,
             tostring(config.auto_open),
-            tostring(config.auto_close)
+            tostring(config.auto_close),
+            config.scrollback
         )
     )
 end
