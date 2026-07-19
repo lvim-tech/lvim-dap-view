@@ -9,7 +9,6 @@
 ---@class LvimDapViewIcons
 ---@field scope    string
 ---@field variable string
----@field value    string
 ---@field thread   string
 ---@field frame    string
 ---@field frame_focused string
@@ -18,16 +17,6 @@
 ---@field logpoint string
 ---@field watch    string
 ---@field session  string
----@field exception string
----@field play     string
----@field pause    string
----@field step_over string
----@field step_into string
----@field step_out string
----@field step_back string
----@field run_last string
----@field terminate string
----@field disconnect string
 
 ---@class LvimDapViewConfig
 ---@field sections  string[]      which tabs to show, left→right (subset of the known sections)
@@ -52,7 +41,6 @@ return {
     icons = {
         scope = "",
         variable = "",
-        value = "",
         thread = "",
         frame = "",
         frame_focused = "➤",
@@ -61,16 +49,6 @@ return {
         logpoint = "",
         watch = "",
         session = "",
-        exception = "",
-        play = "",
-        pause = "",
-        step_over = "",
-        step_into = "",
-        step_out = "",
-        step_back = "",
-        run_last = "",
-        terminate = "",
-        disconnect = "",
     },
     keys = {
         expand = "<CR>",

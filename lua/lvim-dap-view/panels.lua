@@ -57,6 +57,12 @@ end
 --- Lazy children for a variablesReference: cached, else kick off a fetch + refresh of the OWNING section.
 --- The completion routes through the dock's guarded `refresh(owner)` (a no-op for a hidden tab, correct
 --- tree otherwise) — hard-coding `state.trees.scopes` here painted a Watches expansion onto the Scopes tab.
+---
+--- Two guards keep the fetch correct across a stop: `state.var_fetching[ref]` DEDUPES — a render during the
+--- pending window (the tree repaints repeatedly) must not fire a second `variables` request for the same
+--- ref; and the captured `state.expanded_gen` ABORTS a fetch whose result lands after `state.invalidate()`
+--- (a new stop) — writing the old stop's variables into the fresh cache could shadow a DIFFERENT container,
+--- since adapters reuse the small variablesReference integers per stop.
 ---@param ref integer
 ---@param path string
 ---@param owner string  the owning section ("scopes"|"watches")
@@ -71,11 +77,19 @@ function M.child_nodes(ref, path, owner)
         return {}
     end
     -- Fire once; the refresh re-enters this function with the cache populated.
-    require("lvim-dap.async").run(function()
-        local vars = s:fetch_variables(ref) or {}
-        state.var_cache[ref] = vars
-        require("lvim-dap-view").refresh(owner)
-    end)
+    if not state.var_fetching[ref] then
+        state.var_fetching[ref] = true
+        local gen = state.expanded_gen
+        require("lvim-dap.async").run(function()
+            local vars = s:fetch_variables(ref) or {}
+            if gen ~= state.expanded_gen then
+                return -- a stop happened mid-fetch: this result belongs to the old stop, drop it
+            end
+            state.var_cache[ref] = vars
+            state.var_fetching[ref] = nil
+            require("lvim-dap-view").refresh(owner)
+        end)
+    end
     return { { id = path .. "/__loading", label = "loading…", icon = "", label_hl = "Comment" } }
 end
 
@@ -220,7 +234,8 @@ function M.watches_root()
         }
     end
     if #nodes == 0 then
-        nodes[1] = { id = "watch/__empty", label = "no watches — press a to add", icon = "", label_hl = "Comment" }
+        local hint = ("no watches — press %s to add"):format(config.keys.add_watch or "a")
+        nodes[1] = { id = "watch/__empty", label = hint, icon = "", label_hl = "Comment" }
     end
     return nodes
 end

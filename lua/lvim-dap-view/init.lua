@@ -67,9 +67,15 @@ local function refresh_watches()
     if not s or #state.watches == 0 then
         return
     end
+    -- Capture the generation: a stop during the batch bumps `expanded_gen`, and this (now stale) batch must
+    -- not write its results over the fresh stop's re-evaluation (the new stop starts its own batch).
+    local gen = state.expanded_gen
     require("lvim-dap.async").run(function()
         for _, expr in ipairs(state.watches) do
             local err, body = s:evaluate(expr, "watch")
+            if gen ~= state.expanded_gen then
+                return -- a newer stop owns the results now
+            end
             state.watch_results[expr] = { err = err, body = body }
         end
         M.refresh("watches")
@@ -247,20 +253,44 @@ local function selected()
     return t and t.selected and t.selected() or nil
 end
 
+--- Whether the active section is a TEXT section (REPL / Console) — it has no tree handle. On such a section
+--- the shared content panel is NOT modal-locked (visible cursor, native j/k/G/search/yank), so a panel key
+--- the dock binds for a TREE action falls through to its native behaviour there instead of no-op'ing.
+---@return boolean
+local function is_text_section()
+    return state.trees[state.current or ""] == nil
+end
+
+--- Replay a key with its native (noremap) meaning — the standard conditional-keymap fallthrough, so a dock
+--- keymap that does not apply on the active section behaves like the un-mapped key (e.g. `h`/`l`/`y` on the
+--- REPL / Console scrollback, which are otherwise swallowed by the tree-nav / gated maps).
+---@param lhs string
+local function passthrough(lhs)
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(lhs, true, false, true), "n", false)
+end
+
 --- Expand/collapse or activate the node under the cursor in the ACTIVE tree (the `<CR>` / `l` seam). A leaf
---- with an `on_activate` (a stack frame, a breakpoint, an exception filter, a session) is activated.
-local function nav_activate()
+--- with an `on_activate` (a stack frame, a breakpoint, an exception filter, a session) is activated. On a text
+--- section (no tree) the key replays natively so `<CR>`/`l` still move the cursor in the scrollback.
+---@param lhs string
+local function nav_activate(lhs)
     local t = state.trees[state.current or ""]
     if t and t.valid and t.valid() then
         t.expand_or_activate()
+    else
+        passthrough(lhs)
     end
 end
 
---- Collapse the node under the cursor (or hop to its parent) in the ACTIVE tree (the `h` seam).
-local function nav_collapse()
+--- Collapse the node under the cursor (or hop to its parent) in the ACTIVE tree (the `h` seam); on a text
+--- section the key replays natively.
+---@param lhs string
+local function nav_collapse(lhs)
     local t = state.trees[state.current or ""]
     if t and t.valid and t.valid() then
         t.collapse_or_parent()
+    else
+        passthrough(lhs)
     end
 end
 
@@ -439,13 +469,26 @@ local ACTIONS = {
 ---@param sec table
 ---@return table  the tree handle
 local function build_tree(name, sec)
+    -- Section-ownership guard on activation. A provider-tab dock shares ONE content buffer, and lvim-ui binds
+    -- a tree's mouse-click handler on that buffer at OPEN only — it is never detached on a tab switch, so a
+    -- click on ANOTHER tab's row would resolve against this tree's stale row registry and fire ITS on_activate
+    -- (e.g. a click on the Breakpoints tab jumping to the Stack frame that was on that row). Gate every
+    -- on_activate on the ACTIVE section so a stale at-open tree can never mis-route a click. (The proper detach
+    -- is an lvim-ui tab-lifecycle fix — recorded OPEN; this guard makes the mis-dispatch inert meanwhile.)
+    local on_activate = sec.on_activate
+        and function(node)
+            if state.current ~= name then
+                return
+            end
+            sec.on_activate(node)
+        end
     local t = ui().tree({
         root = sec.tree,
         default_expanded = sec.default_expanded,
         filetype = "LvimDapView",
         connectors = true,
         keys = false,
-        on_activate = sec.on_activate,
+        on_activate = on_activate,
     })
     -- Record which section owns the shared content window on each (re)layout.
     local orig_update = t.provider.update
@@ -548,26 +591,43 @@ end
 local function build_keymaps()
     local km = {}
     local seen = {}
-    local function add(lhs, fn)
+    ---@param lhs string
+    ---@param fn fun()
+    ---@param scope? "panel"  bind on the PANELS only (not the chrome container) — see below
+    local function add(lhs, fn, scope)
         if lhs and lhs ~= "" and not seen[lhs] then
             seen[lhs] = true
-            km[#km + 1] = { key = lhs, run = fn }
+            km[#km + 1] = { key = lhs, run = fn, scope = scope }
         end
     end
-    -- Tree navigation on the active section (README documents lower-case l/h as expand/collapse).
-    add(config.keys.expand, nav_activate)
-    add("l", nav_activate)
-    add("h", nav_collapse)
+    -- Tree navigation on the active section (README documents lower-case l/h as expand/collapse). These are
+    -- PANEL-scoped: the chrome container binds h/l/<CR> to its bar selection (move + confirm), and a frame-wide
+    -- keymap would overwrite them, making a focused tab bar / controls footer keyboard-unusable. Each replays
+    -- the key natively (feedkeys) on a text section so REPL/Console keep native h/l/<CR> motion.
+    add(config.keys.expand, function()
+        nav_activate(config.keys.expand)
+    end, "panel")
+    add("l", function()
+        nav_activate("l")
+    end, "panel")
+    add("h", function()
+        nav_collapse("h")
+    end, "panel")
     for _, a in ipairs(ACTIONS) do
         if a.run and a.sections then
             local sections = a.sections
             local run = a.run ---@type fun()
             local fallback = a.fallback
-            add(config.keys[a.name], function()
+            local lhs = config.keys[a.name]
+            add(lhs, function()
                 if vim.tbl_contains(sections, state.current) then
                     run()
                 elseif fallback then
                     fallback()
+                elseif is_text_section() then
+                    -- The action does not apply here and there is no run-control fallback (e.g. `y` outside
+                    -- scopes/watches): on the native scrollback the key should do its native thing (yank).
+                    passthrough(lhs)
                 end
             end)
         elseif a.nav == "next" then
@@ -591,6 +651,13 @@ end
 --- Open the dock. Idempotent — focuses the existing dock if already open.
 ---@param section? string  initial tab (name)
 function M.open(section)
+    -- Reject an unknown section name (a `:LvimDapView open <typo>` arg): it would be stamped into
+    -- `state.current` and route every key/refresh to a section that does not exist until a tab switch
+    -- restamps. Fall back to the default section.
+    if section and not SECTIONS[section] then
+        vim.notify("lvim-dap-view: unknown section " .. section, vim.log.levels.WARN)
+        section = nil
+    end
     if state.open and state.handle and state.handle.valid and state.handle.valid() then
         if section then
             M.focus(section)
@@ -626,7 +693,11 @@ function M.open(section)
         footer_hints = controls(),
         -- Panel keys are frame-wide (dispatched by the active section) — see build_keymaps.
         keymaps = build_keymaps(),
-        on_close = function()
+        -- The close hook. `ui.tabs` notifies teardown through `callback(confirmed, result)`, NOT an
+        -- `on_close` key (a provider-tab dock never "confirms", so this fires with `false` on every teardown
+        -- — a `q`-close included). Resetting `state.open`/`state.handle` HERE is what lets `auto_open` reopen
+        -- on the next stop and `toggle` work in one press; `M.close` just makes the reset idempotent.
+        callback = function()
             state.open = false
             state.handle = nil
         end,
@@ -655,12 +726,16 @@ function M.toggle()
     end
 end
 
---- Focus a section tab by name.
+--- Focus a section tab by name. Only adopt `name` as the active section when the tab actually switched —
+--- `select_tab` returns false for an unknown name, and blindly stamping `state.current` then would route
+--- every key/refresh to a section that is not visible.
 ---@param name string
 function M.focus(name)
     if state.handle and state.handle.select_tab then
-        pcall(state.handle.select_tab, name)
-        state.current = name
+        local ok, switched = pcall(state.handle.select_tab, name)
+        if ok and switched then
+            state.current = name
+        end
     end
 end
 
@@ -693,6 +768,21 @@ function M.refresh_all()
     if state.current then
         M.refresh(state.current)
     end
+end
+
+--- Coalesced Console repaint: a chatty debuggee delivers many `output` events per event-loop tick, and each
+--- full-scrollback repaint is O(scrollback). Collapse a burst into ONE scheduled repaint — schedule only when
+--- nothing is already queued; the single pass clears the flag and repaints once.
+local console_repaint_queued = false
+local function schedule_console_refresh()
+    if console_repaint_queued then
+        return
+    end
+    console_repaint_queued = true
+    vim.schedule(function()
+        console_repaint_queued = false
+        M.refresh("console")
+    end)
 end
 
 -- ── engine listeners + lifecycle ─────────────────────────────────────────────
@@ -753,9 +843,9 @@ local function wire_engine()
             vim.list_extend(state.console_lines, lines)
             trim_scrollback(state.console_lines)
         end
-        vim.schedule(function()
-            M.refresh("console") -- always: the provisional partial row tails live even before a newline
-        end)
+        -- Always (even with no new full line): the provisional partial row tails live before a newline. One
+        -- coalesced repaint per tick — a burst of output events collapses into a single scrollback render.
+        schedule_console_refresh()
     end
     -- Session start / end.
     L.on_session["lvim-dap-view"] = function(_, new)
