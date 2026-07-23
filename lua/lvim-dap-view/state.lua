@@ -7,6 +7,8 @@
 
 ---@class LvimDapViewState
 ---@field handle? table                      the lvim-ui.tabs handle for the open dock
+---@field dock_key? string                   the dock ENTRY KEY returned by `dock.open` (nil = not docked)
+---@field parking? boolean                   true WHILE the dock is closing us (skip the re-entrant dock.closed)
 ---@field trees table<string, table>         section name → lvim-ui.tree handle
 ---@field open boolean                       whether the dock is open
 ---@field current string?                    the active section
@@ -20,6 +22,8 @@
 ---@field watch_results table<string, table> expression → last evaluate result/err
 local M = {
     handle = nil,
+    dock_key = nil,
+    parking = false,
     trees = {},
     open = false,
     current = nil,

@@ -21,7 +21,10 @@
 ---@class LvimDapViewConfig
 ---@field sections  string[]      which tabs to show, left→right (subset of the known sections)
 ---@field default_section string  the tab focused on open
----@field layout    "bottom"|"area"|"float"  the dock layout (per the panel canon)
+---@field layout    "bottom"|"area"|"float"  the dock layout (per the panel canon). Prefer "area": it
+---                 homes in the msgarea zone, so the global `<C-j>` DESCENDS into it (and `<C-k>` escapes
+---                 up) uniformly with every other lvim-tech dock (tasks, files…). A "bottom" dock floats
+---                 over the bottom rows and is NOT msgarea-hosted, so `<C-j>` cannot reach it.
 ---@field height    number        docked content row budget (absolute rows) for bottom/area
 ---@field auto_open boolean       open the dock automatically when a session starts
 ---@field auto_close boolean      close the dock automatically when the last session ends
@@ -33,7 +36,7 @@
 return {
     sections = { "watches", "scopes", "stack", "breakpoints", "exceptions", "repl", "console", "sessions" },
     default_section = "scopes",
-    layout = "bottom",
+    layout = "area",
     height = 14,
     auto_open = true,
     auto_close = true,

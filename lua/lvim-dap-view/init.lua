@@ -23,6 +23,11 @@ local state = require("lvim-dap-view.state")
 local panels = require("lvim-dap-view.panels")
 
 local ok_utils, utils = pcall(require, "lvim-utils.utils")
+-- The shared dock-stack manager. Registering the panel as a CONSUMER (dock.open) is what puts it in the
+-- `<Leader>m` / `:LvimDock menu`, lets the global `<C-j>` (dock.descend) reach it, and makes it cycle +
+-- share the one-visible-per-layout invariant with the terminal / tasks / pickers. Guarded — without it
+-- the panel opens standalone (geometry stays central).
+local ok_dock, dock = pcall(require, "lvim-utils.dock")
 
 local M = {}
 
@@ -648,22 +653,12 @@ local function build_keymaps()
     return km
 end
 
---- Open the dock. Idempotent — focuses the existing dock if already open.
----@param section? string  initial tab (name)
-function M.open(section)
-    -- Reject an unknown section name (a `:LvimDapView open <typo>` arg): it would be stamped into
-    -- `state.current` and route every key/refresh to a section that does not exist until a tab switch
-    -- restamps. Fall back to the default section.
-    if section and not SECTIONS[section] then
-        vim.notify("lvim-dap-view: unknown section " .. section, vim.log.levels.WARN)
-        section = nil
-    end
-    if state.open and state.handle and state.handle.valid and state.handle.valid() then
-        if section then
-            M.focus(section)
-        end
-        return
-    end
+--- Build the tabs surface (the actual frame) for `section` in the CURRENT `config.layout`. The dock
+--- consumer's `show` drives this — `M.open` routes through the dock so the panel is a first-class dock
+--- member. Kept separate from `M.open` so the manager can rebuild the frame on a cycle / restore.
+---@param section string?
+---@return nil
+local function open_frame(section)
     state.trees = {}
     local tabs = {}
     for _, name in ipairs(config.sections) do
@@ -683,7 +678,11 @@ function M.open(section)
 
     state.handle = ui().tabs({
         title = "Debug",
-        title_line = "statusline",
+        -- The title is the panel's OWN top row (NOT `"statusline"`): publishing it to the chrome
+        -- statusline overlay HIJACKS the editor's statusline while a session is open, so the normal
+        -- statusline (file / LSP / position) vanished behind a "Debug" bar. As a panel row the dock
+        -- keeps its title AND the editor statusline stays visible above the dock.
+        title_line = "row",
         tabs = tabs,
         layout = config.layout,
         area_height = config.height,
@@ -693,21 +692,120 @@ function M.open(section)
         footer_hints = controls(),
         -- Panel keys are frame-wide (dispatched by the active section) — see build_keymaps.
         keymaps = build_keymaps(),
-        -- The close hook. `ui.tabs` notifies teardown through `callback(confirmed, result)`, NOT an
-        -- `on_close` key (a provider-tab dock never "confirms", so this fires with `false` on every teardown
-        -- — a `q`-close included). Resetting `state.open`/`state.handle` HERE is what lets `auto_open` reopen
-        -- on the next stop and `toggle` work in one press; `M.close` just makes the reset idempotent.
+        -- `ui.tabs` reports teardown through `callback` (fires on a q-close too). Reset our state, and
+        -- tell the DOCK so the entry parks (a session still lives) / drops — UNLESS the dock itself is
+        -- closing us (`state.parking`), which would be a re-entrant churn.
         callback = function()
             state.open = false
             state.handle = nil
+            if ok_dock and state.dock_key and not state.parking then
+                local ok, kept = pcall(dock.closed, state.dock_key)
+                if not (ok and kept) then
+                    state.dock_key = nil
+                end
+            end
         end,
     })
     state.open = state.handle ~= nil
     state.current = section or config.default_section
 end
 
---- Close the dock.
+--- This panel as a dock CONSUMER — the contract lvim-utils.dock drives. Registering it is what puts the
+--- panel in the `<Leader>m` / `:LvimDock <layout> menu`, lets the global `<C-j>` (dock.descend) reach it,
+--- and shares the one-visible-per-layout invariant with the terminal / tasks / pickers. `layout` is the
+--- CURRENT `config.layout` (a `:LvimDapView area|bottom|float` token sets it before the open).
+---@param section string?
+---@return table
+local function consumer(section)
+    return {
+        id = "lvim-dap-view",
+        name = "Debug",
+        icon = "󰃤",
+        layout = config.layout,
+        show = function()
+            open_frame(section)
+        end,
+        -- PARK: drop the window, keep the state. The rows are a projection of live lvim-dap state, so a
+        -- parked panel rebuilds losslessly on the next `show`.
+        hide = function()
+            if state.handle and state.handle.close then
+                state.parking = true
+                pcall(state.handle.close)
+                state.handle = nil
+                state.open = false
+                state.parking = false
+            end
+        end,
+        -- Alive while the panel is OPEN or a debug session is live: it stays a first-class dock member
+        -- (menu / descend / cycle) throughout, and a q-close mid-session PARKS it (re-summonable). Once
+        -- both are gone (session ended, panel closed) the entry is dropped from the stack.
+        is_alive = function()
+            return state.open == true or dap().session() ~= nil
+        end,
+        close = function()
+            if state.handle and state.handle.close then
+                state.parking = true
+                pcall(state.handle.close)
+                state.handle = nil
+                state.open = false
+                state.parking = false
+            end
+        end,
+        focus = function()
+            local win = state.handle and state.handle.win and state.handle.win()
+            if win and vim.api.nvim_win_is_valid(win) then
+                vim.api.nvim_set_current_win(win)
+            end
+        end,
+        -- The global descend lands on the frame's HEADER (its first sector), mirroring the <C-k> escape-up.
+        descend = function()
+            if state.handle and state.handle.enter then
+                state.handle.enter()
+            end
+        end,
+        is_current = function()
+            local win = state.handle and state.handle.win and state.handle.win()
+            return win ~= nil and win == vim.api.nvim_get_current_win()
+        end,
+    }
+end
+
+--- Open the dock. Idempotent — focuses the existing dock if already open. Routes through
+--- lvim-utils.dock so the panel is a first-class member of the shared stack (menu / cycle / descend);
+--- without the dock it opens standalone (geometry is still central).
+---@param section string?
+---@return nil
+function M.open(section)
+    -- Reject an unknown section name (a `:LvimDapView open <typo>` arg): it would be stamped into
+    -- `state.current` and route every key/refresh to a section that does not exist until a tab switch
+    -- restamps. Fall back to the default section.
+    if section and not SECTIONS[section] then
+        vim.notify("lvim-dap-view: unknown section " .. section, vim.log.levels.WARN)
+        section = nil
+    end
+    if state.open and state.handle and state.handle.valid and state.handle.valid() then
+        if section then
+            M.focus(section)
+        end
+        return
+    end
+    if not ok_dock then
+        open_frame(section) -- no dock manager: standalone, geometry still central
+        return
+    end
+    -- Through the dock: opening in a layout that already holds a terminal / tasks / picker PARKS that
+    -- occupant rather than overlapping it, and our `show` builds the frame at the dock's resolved slot.
+    state.dock_key = dock.open(consumer(section))
+end
+
+--- Close the dock (full teardown + remove from the stack). A no-op when not open.
 function M.close()
+    if ok_dock and state.dock_key then
+        local key = state.dock_key
+        state.dock_key = nil
+        pcall(dock.close, key)
+        return
+    end
     if state.handle and state.handle.valid and state.handle.valid() then
         pcall(function()
             state.handle.close()
@@ -715,6 +813,12 @@ function M.close()
     end
     state.open = false
     state.handle = nil
+end
+
+--- Whether the dock is currently open (and its window still valid).
+---@return boolean
+function M.is_open()
+    return state.open == true and state.handle ~= nil and state.handle.valid ~= nil and state.handle.valid()
 end
 
 --- Toggle the dock.
@@ -754,6 +858,14 @@ function M.refresh(name)
     local t = state.trees[name]
     if t and t.valid and t.valid() then
         t.refresh()
+        -- Re-fit the DOCKED panel to the tree's NEW row count. A content-fit dock (area/bottom, height =
+        -- auto up to a cap) sizes to the rows PRESENT when it opened; a tree that then gains a root — a
+        -- second scope (Locals → Locals+Globals) arriving async after the stop, or a node expanded —
+        -- must GROW the fit, else the extra rows clip. `recalc` relayouts the frame, which re-fires the
+        -- active provider's render at the re-fitted height. (No-op for a non-auto / already-tall dock.)
+        if state.handle and state.handle.recalc then
+            pcall(state.handle.recalc)
+        end
         return
     end
     -- A TEXT section (REPL / Console): repaint the shared content panel in place, so streaming output
