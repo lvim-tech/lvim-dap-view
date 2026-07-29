@@ -71,6 +71,19 @@ keys work regardless of the tab you opened on.
 (`watches`, `scopes`, `stack`, `breakpoints`, `exceptions`, `repl`, `console`, `sessions`)
 to open the dock focused on that tab.
 
+## API
+
+`require("lvim-dap-view").continue_or_reopen()` — what a **continue** key should call. Closing the
+dock does not end the session, so a plain "continue" afterwards resumes a run you cannot see; this
+brings the dock back instead, and only continues when the dock is already open (or no session
+exists). Returns `"reopened"`, `"continued"` or `"unavailable"`.
+
+```lua
+vim.keymap.set("n", "<A-2>", function()
+    require("lvim-dap-view").continue_or_reopen()
+end, { desc = "Debug: continue, or reopen the view" })
+```
+
 ## Default configuration
 
 Every option at its default value (mirrors `lua/lvim-dap-view/config.lua`):

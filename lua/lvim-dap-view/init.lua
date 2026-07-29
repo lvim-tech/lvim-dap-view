@@ -821,6 +821,32 @@ function M.is_open()
     return state.open == true and state.handle ~= nil and state.handle.valid ~= nil and state.handle.valid()
 end
 
+--- Resume the debug session, or bring this dock BACK when a session is live and the dock is not.
+---
+--- THE KEY THAT DRIVES A RUN IS ONE KEY. Closing the dock does not end the session, so pressing
+--- "continue" afterwards used to resume a run the reader could not see — the panel stayed shut and
+--- the program ran on invisibly. Reopening the view is the honest answer to that press; only when
+--- the view is already there (or there is no session at all) does it mean "continue".
+---
+--- Lives here rather than in a host's keymap because it is a statement about THIS dock's
+--- relationship to the session, and every consumer that binds a continue key needs the same one.
+--- lvim-dap is a soft dependency: without it there is no session to speak of, and the call is a
+--- no-op that reports itself.
+---@return "reopened"|"continued"|"unavailable"  what the press actually did
+function M.continue_or_reopen()
+    local ok_dap, dap = pcall(require, "lvim-dap")
+    if not ok_dap then
+        vim.notify("lvim-dap-view: lvim-dap is not available", vim.log.levels.WARN)
+        return "unavailable"
+    end
+    if dap.session() and not M.is_open() then
+        M.open()
+        return "reopened"
+    end
+    dap.continue()
+    return "continued"
+end
+
 --- Toggle the dock.
 function M.toggle()
     if state.open then
