@@ -620,7 +620,7 @@ local function build_keymaps()
     end, "panel")
     for _, a in ipairs(ACTIONS) do
         if a.run and a.sections then
-            local sections = a.sections
+            local sections = a.sections ---@type string[]
             local run = a.run ---@type fun()
             local fallback = a.fallback
             local lhs = config.keys[a.name]
@@ -834,16 +834,16 @@ end
 --- no-op that reports itself.
 ---@return "reopened"|"continued"|"unavailable"  what the press actually did
 function M.continue_or_reopen()
-    local ok_dap, dap = pcall(require, "lvim-dap")
+    local ok_dap, dap_mod = pcall(require, "lvim-dap")
     if not ok_dap then
         vim.notify("lvim-dap-view: lvim-dap is not available", vim.log.levels.WARN)
         return "unavailable"
     end
-    if dap.session() and not M.is_open() then
+    if dap_mod.session() and not M.is_open() then
         M.open()
         return "reopened"
     end
-    dap.continue()
+    dap_mod.continue()
     return "continued"
 end
 
