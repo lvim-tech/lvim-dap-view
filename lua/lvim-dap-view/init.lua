@@ -571,6 +571,12 @@ local function controls()
     }
 end
 
+--- The action list, reachable by name for the suite only. The point of there being ONE list is that a
+--- key cannot be advertised without a handler — a drift that had already left `copy_value`, `edit`,
+--- `]v` and `[v` dead once — so a spec that re-checks the correspondence is cheap insurance.
+--- Nothing in the plugin reads it through this name.
+M._actions = ACTIONS
+
 --- Open the keymap cheatsheet — the shared `lvim-ui.help` component. Rows come from the LIVE `ACTIONS`
 --- (deduped by key + description), so the cheatsheet and the wired keys cannot diverge.
 function show_help()
